@@ -1,0 +1,234 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Norwegian Dictionary";
+}
+
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <h1 class="mb-4">Norwegian Dictionary</h1>
+
+        <form method="get" action="/" class="mb-4">
+            <div class="mb-3 position-relative">
+                <label for="wordInput" class="form-label fw-semibold">Look up a word</label>
+                <input type="text"
+                       id="wordInput"
+                       name="word"
+                       value="@Model.Word"
+                       class="form-control form-control-lg"
+                       placeholder="Enter a Norwegian word…"
+                       autocomplete="off"
+                       aria-autocomplete="list"
+                       aria-controls="autocomplete-list" />
+                <ul id="autocomplete-list"
+                    class="list-group position-absolute w-100 shadow-sm"
+                    style="z-index:1000; display:none;"></ul>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Dictionaries</label>
+                <div class="d-flex gap-3 flex-wrap">
+                    @foreach (var (key, label) in IndexModel.DictionaryNames)
+                    {
+                        <div class="form-check">
+                            <input class="form-check-input dict-checkbox"
+                                   type="checkbox"
+                                   name="dictionaries"
+                                   id="dict-@key"
+                                   value="@key"
+                                   @(Model.Dictionaries.Contains(key) ? "checked" : "") />
+                            <label class="form-check-label" for="dict-@key">@label</label>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg">Search</button>
+        </form>
+
+        @if (Model.Searched)
+        {
+            if (Model.Result is null || Model.Result.Articles.Count == 0)
+            {
+                <div class="alert alert-warning">
+                    No results found for <strong>@Model.Word</strong>.
+                </div>
+            }
+            else
+            {
+                <h2 class="mb-3">Results for <em>@Model.Result.Word</em></h2>
+
+                @foreach (var article in Model.Result.Articles)
+                {
+                    <div class="card mb-4">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span class="fs-5 fw-bold">
+                                @string.Join(", ", article.Lemmas.Select(l => l.Lemma))
+                            </span>
+                            <span class="badge bg-secondary">
+                                @IndexModel.FriendlyDictionaryName(article.Dictionary)
+                            </span>
+                        </div>
+                        <div class="card-body">
+
+                            @* Word class and gender *@
+                            @if (article.WordClass is not null || article.Gender is not null)
+                            {
+                                <p class="text-muted mb-2">
+                                    @if (article.WordClass is not null)
+                                    {
+                                        <span><strong>Word class:</strong> @article.WordClass</span>
+                                    }
+                                    @if (article.Gender is not null)
+                                    {
+                                        <span class="ms-3">
+                                            <strong>Gender:</strong> @IndexModel.FriendlyGender(article.Gender)
+                                        </span>
+                                    }
+                                </p>
+                            }
+
+                            @* Definitions *@
+                            @if (article.FlatDefinitions.Count > 0)
+                            {
+                                <h6 class="mt-3">Definitions</h6>
+                                <ol class="mb-2">
+                                    @foreach (var def in article.FlatDefinitions)
+                                    {
+                                        <li @(def.ParentIndex.HasValue ? "class=ms-4" : "")>
+                                            @foreach (var c in def.Content)
+                                            {
+                                                <span>@c.TextContent</span>
+                                            }
+                                            @if (def.Examples.Count > 0)
+                                            {
+                                                <ul class="list-unstyled ms-3 mt-1">
+                                                    @foreach (var ex in def.Examples)
+                                                    {
+                                                        <li><em class="text-secondary">@ex.TextContent</em></li>
+                                                    }
+                                                </ul>
+                                            }
+                                        </li>
+                                    }
+                                </ol>
+                            }
+
+                            @* Etymology *@
+                            @if (article.Etymology.Count > 0)
+                            {
+                                <h6 class="mt-3">Etymology</h6>
+                                <p class="fst-italic text-muted">
+                                    @string.Join(" ", article.Etymology.Select(e => e.TextContent))
+                                </p>
+                            }
+
+                            @* Inflection tables *@
+                            @foreach (var lemma in article.Lemmas)
+                            {
+                                @foreach (var paradigm in lemma.Paradigms)
+                                {
+                                    @if (paradigm.Inflections.Count > 0)
+                                    {
+                                        <h6 class="mt-3">
+                                            Inflections
+                                            @if (paradigm.Tags.Count > 0)
+                                            {
+                                                <small class="text-muted fw-normal">(@string.Join(", ", paradigm.Tags))</small>
+                                            }
+                                        </h6>
+                                        <div class="table-responsive">
+                                            <table class="table table-sm table-bordered w-auto">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>Form</th>
+                                                        <th>Tags</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var inf in paradigm.Inflections)
+                                                    {
+                                                        <tr>
+                                                            <td>@inf.WordForm</td>
+                                                            <td class="text-muted">@string.Join(", ", inf.Tags)</td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    }
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+            }
+        }
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const input = document.getElementById('wordInput');
+            const list = document.getElementById('autocomplete-list');
+            let debounceTimer;
+
+            function getCheckedDictionaries() {
+                return Array.from(document.querySelectorAll('.dict-checkbox:checked'))
+                    .map(cb => cb.value);
+            }
+
+            function clearList() {
+                list.innerHTML = '';
+                list.style.display = 'none';
+            }
+
+            function showSuggestions(words) {
+                clearList();
+                if (!words || words.length === 0) return;
+                words.forEach(word => {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item list-group-item-action';
+                    li.textContent = word;
+                    li.style.cursor = 'pointer';
+                    li.addEventListener('mousedown', () => {
+                        input.value = word;
+                        clearList();
+                    });
+                    list.appendChild(li);
+                });
+                list.style.display = 'block';
+            }
+
+            input.addEventListener('input', () => {
+                clearTimeout(debounceTimer);
+                const word = input.value.trim();
+                if (word.length < 2) { clearList(); return; }
+
+                debounceTimer = setTimeout(async () => {
+                    const dicts = getCheckedDictionaries();
+                    const params = new URLSearchParams({ word });
+                    dicts.forEach(d => params.append('dictionaries', d));
+
+                    try {
+                        const resp = await fetch('/api/suggest?' + params.toString());
+                        const data = await resp.json();
+                        showSuggestions(data);
+                    } catch {
+                        clearList();
+                    }
+                }, 250);
+            });
+
+            input.addEventListener('blur', () => {
+                setTimeout(clearList, 150);
+            });
+
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape') clearList();
+            });
+        })();
+    </script>
+}
+
